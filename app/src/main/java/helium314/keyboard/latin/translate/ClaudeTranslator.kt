@@ -13,6 +13,11 @@ object ClaudeTranslator {
 
     class Result(val text: String?, val error: String?)
 
+    private val KEY_REGEX = Regex("sk-ant-[A-Za-z0-9_\\-]+")
+
+    /** Extracts the API key even if more text was pasted (e.g. a whole curl example from the Console). */
+    fun extractKey(raw: String): String? = KEY_REGEX.find(raw)?.value
+
     private fun systemPrompt(toEnglish: Boolean): String {
         val (from, to) = if (toEnglish) "European Portuguese" to "natural, professional English"
             else "English" to "natural European Portuguese (Portugal)"
@@ -25,6 +30,7 @@ object ClaudeTranslator {
     }
 
     fun translate(apiKey: String, model: String, text: String, toEnglish: Boolean): Result {
+        val key = extractKey(apiKey) ?: return Result(null, "Chave API inválida: cola só a chave sk-ant-…")
         var connection: HttpURLConnection? = null
         return try {
             val body = JSONObject()
@@ -38,7 +44,7 @@ object ClaudeTranslator {
                 readTimeout = 30000
                 doOutput = true
                 setRequestProperty("content-type", "application/json")
-                setRequestProperty("x-api-key", apiKey.trim())
+                setRequestProperty("x-api-key", key)
                 setRequestProperty("anthropic-version", API_VERSION)
             }
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }

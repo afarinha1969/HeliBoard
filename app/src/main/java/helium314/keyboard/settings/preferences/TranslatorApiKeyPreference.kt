@@ -30,7 +30,7 @@ fun TranslatorApiKeyPreference(setting: Setting) {
     if (showDialog) {
         TextInputDialog(
             onDismissRequest = { showDialog = false },
-            onConfirmed = { prefs.edit { putString(setting.key, it.trim()) } },
+            onConfirmed = { prefs.edit { putString(setting.key, helium314.keyboard.latin.translate.ClaudeTranslator.extractKey(it) ?: it.trim()) } },
             initialText = "",
             title = { Text(setting.title) },
             checkTextValid = { it.isNotBlank() },
