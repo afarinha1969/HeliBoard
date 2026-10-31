@@ -31,7 +31,7 @@ class TranslatorInputConnection(
     fun cursor(): Int = Selection.getSelectionEnd(buffer).coerceIn(0, buffer.length)
 
     fun clear() {
-        removeComposingSpans(buffer)
+        BaseInputConnection.removeComposingSpans(buffer)
         buffer.clear()
         buffer.clearSpans()
         Selection.setSelection(buffer, 0)
@@ -82,12 +82,12 @@ class TranslatorInputConnection(
         val b = maxOf(start, end)
         when (event.keyCode) {
             KeyEvent.KEYCODE_DEL -> {
-                removeComposingSpans(buffer)
+                BaseInputConnection.removeComposingSpans(buffer)
                 if (a != b) buffer.delete(a, b)
                 else if (a > 0) buffer.delete(Character.offsetByCodePoints(buffer, a, -1), a)
             }
             KeyEvent.KEYCODE_FORWARD_DEL -> {
-                removeComposingSpans(buffer)
+                BaseInputConnection.removeComposingSpans(buffer)
                 if (a != b) buffer.delete(a, b)
                 else if (a < buffer.length) buffer.delete(a, Character.offsetByCodePoints(buffer, a, 1))
             }
