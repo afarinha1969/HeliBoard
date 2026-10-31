@@ -59,6 +59,8 @@ fun AdvancedSettingsScreen(
     if ((b?.value ?: 0) < 0)
         Log.v("irrelevant", "stupid way to trigger recomposition on preference change")
     val items = listOf(
+        Settings.PREF_TRANSLATOR_API_KEY,
+        Settings.PREF_TRANSLATOR_MODEL,
         Settings.PREF_ALWAYS_INCOGNITO_MODE,
         Settings.PREF_KEY_LONGPRESS_TIMEOUT,
         Settings.PREF_SPACE_HORIZONTAL_SWIPE,
@@ -100,6 +102,12 @@ fun AdvancedSettingsScreen(
 
 @SuppressLint("ApplySharedPref")
 fun createAdvancedSettings(context: Context) = listOf(
+    Setting(context, Settings.PREF_TRANSLATOR_API_KEY, R.string.translator_api_key) {
+        helium314.keyboard.settings.preferences.TranslatorApiKeyPreference(it)
+    },
+    Setting(context, Settings.PREF_TRANSLATOR_MODEL, R.string.translator_model) { setting ->
+        TextInputPreference(setting, Defaults.PREF_TRANSLATOR_MODEL)
+    },
     Setting(context, Settings.PREF_ALWAYS_INCOGNITO_MODE,
         R.string.incognito, R.string.prefs_force_incognito_mode_summary)
     {

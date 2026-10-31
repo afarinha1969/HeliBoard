@@ -27,6 +27,9 @@ import android.view.inputmethod.InlineSuggestion;
 import android.view.inputmethod.InlineSuggestionsRequest;
 import android.view.inputmethod.InlineSuggestionsResponse;
 import android.view.inputmethod.InputMethodSubtype;
+import android.view.inputmethod.InputConnection;
+import helium314.keyboard.latin.translate.TranslatorController;
+import helium314.keyboard.latin.translate.TranslatorView;
 
 import helium314.keyboard.accessibility.AccessibilityUtils;
 import helium314.keyboard.compat.ConfigurationCompatKt;
@@ -119,6 +122,9 @@ public class LatinIME extends InputMethodService implements
             DictionaryFacilitatorProvider.getDictionaryFacilitator(false);
     private final DictionaryFacilitator mOriginalDictionaryFacilitator = mDictionaryFacilitator;
     final InputLogic mInputLogic = new InputLogic(this, this, mDictionaryFacilitator);
+    private TranslatorController mTranslator;
+    private int mLastRealSelStart = -1;
+    private int mLastRealSelEnd = -1;
 
     // TODO: Move these {@link View}s to {@link KeyboardSwitcher}.
     private View mInputView;
@@ -494,6 +500,7 @@ public class LatinIME extends InputMethodService implements
 
     @Override
     public void onCreate() {
+        mTranslator = new TranslatorController(this);
         mSettings.startListener();
         KeyboardIconsSet.Companion.getInstance().loadIcons(this);
         mRichImm = RichInputMethodManager.getInstance();
@@ -685,6 +692,57 @@ public class LatinIME extends InputMethodService implements
         mInsetsUpdater = ViewOutlineProviderUtilsKt.setInsetsOutlineProvider(view);
         KtxKt.updateSoftInputWindowLayoutParameters(this, mInputView);
         updateSuggestionStripView(view);
+        if (mTranslator != null) mTranslator.attachView(view.findViewById(R.id.translator_view));
+    }
+
+    // ---------------- Claude translator ----------------
+
+    /** While the translator is active, the keyboard writes into the translator's internal buffer. */
+    @Override
+    public InputConnection getCurrentInputConnection() {
+        final TranslatorController translator = mTranslator;
+        if (translator != null && translator.isActive()) {
+            final InputConnection ic = translator.getInputConnection();
+            if (ic != null) return ic;
+        }
+        return super.getCurrentInputConnection();
+    }
+
+    /** The app's real text field, regardless of translator mode. */
+    public InputConnection getRealInputConnection() {
+        return super.getCurrentInputConnection();
+    }
+
+    public void toggleTranslator() {
+        if (mTranslator == null) return;
+        if (mTranslator.isActive()) closeTranslator();
+        else openTranslator();
+    }
+
+    public void openTranslator() {
+        if (mTranslator == null || mTranslator.isActive() || !mTranslator.canActivate()) return;
+        mHandler.cancelUpdateSuggestionStrip();
+        mInputLogic.finishInput(); // commit what is being composed in the app's field
+        mTranslator.activate();
+        restartInputLogic(0, 0);
+    }
+
+    public void closeTranslator() {
+        if (mTranslator == null || !mTranslator.isActive()) return;
+        mHandler.cancelUpdateSuggestionStrip();
+        mInputLogic.finishInput();
+        mTranslator.deactivate(true);
+        restartInputLogic(mLastRealSelStart, mLastRealSelEnd);
+    }
+
+    private void restartInputLogic(final int selStart, final int selEnd) {
+        final SettingsValues settingsValues = mSettings.getCurrent();
+        mInputLogic.startInput(mRichImm.getCombiningRulesExtraValueOfCurrentSubtype(), settingsValues);
+        if (!mInputLogic.mConnection.resetCachesUponCursorMoveAndReturnSuccess(selStart, selEnd, false)) {
+            mHandler.postResetCaches(false, 5);
+        }
+        setNeutralSuggestionStrip();
+        mKeyboardSwitcher.updateShiftState(getCurrentAutoCapsState(), getCurrentRecapitalizeState());
     }
 
     public void updateSuggestionStripView(View view) {
@@ -779,6 +837,11 @@ public class LatinIME extends InputMethodService implements
 
     void onStartInputViewInternal(final EditorInfo editorInfo, final boolean restarting) {
         super.onStartInputView(editorInfo, restarting);
+        if (mTranslator != null && mTranslator.isActive()) mTranslator.deactivate(restarting);
+        if (editorInfo != null) {
+            mLastRealSelStart = editorInfo.initialSelStart;
+            mLastRealSelEnd = editorInfo.initialSelEnd;
+        }
 
         setGestureDataGatheringMode(editorInfo, restarting);
 
@@ -963,6 +1026,10 @@ public class LatinIME extends InputMethodService implements
     void onFinishInputViewInternal(final boolean finishingInput) {
         super.onFinishInputView(finishingInput);
         Log.i(TAG, "onFinishInputView");
+        if (mTranslator != null && mTranslator.isActive()) {
+            mInputLogic.finishInput();
+            mTranslator.deactivate(true);
+        }
         cleanupInternalStateForFinishInput();
     }
 
@@ -984,6 +1051,10 @@ public class LatinIME extends InputMethodService implements
                                   final int composingSpanStart, final int composingSpanEnd) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd,
                 composingSpanStart, composingSpanEnd);
+        mLastRealSelStart = newSelStart;
+        mLastRealSelEnd = newSelEnd;
+        // changes in the app's field while translating come from the translation itself
+        if (mTranslator != null && mTranslator.isActive()) return;
         if (DebugFlags.DEBUG_ENABLED) {
             Log.i(TAG, "onUpdateSelection: oss=" + oldSelStart + ", ose=" + oldSelEnd
                     + ", nss=" + newSelStart + ", nse=" + newSelEnd
@@ -1127,6 +1198,8 @@ public class LatinIME extends InputMethodService implements
         }
         final int stripHeight = mKeyboardSwitcher.isShowingStripContainer() ? mKeyboardSwitcher.getStripContainer().getHeight() : 0;
         int visibleTopY = inputHeight - visibleKeyboardView.getHeight() - stripHeight;
+        final View translatorView = mInputView.findViewById(R.id.translator_view);
+        if (translatorView != null && translatorView.isShown()) visibleTopY -= translatorView.getHeight();
         if (Settings.getValues().mIsFloatingKeyboard)
             visibleTopY = getResources().getDisplayMetrics().heightPixels;
 

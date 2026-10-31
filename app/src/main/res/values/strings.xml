@@ -758,6 +758,7 @@ New dictionary:
     <!-- Theme name for sand theme -->
     <string name="theme_name_sand" tools:keep="@string/theme_name_sand">Sand</string>
     <!-- Theme name for violette theme -->
+    <string name="theme_name_launcher">Launcher (vermelho)</string>
     <string name="theme_name_violette" tools:keep="@string/theme_name_violette">Violette</string>
     <!-- Theme name for user-defined theme -->
     <string name="theme_name_user" tools:keep="@string/theme_name_user">User-Defined</string>
@@ -1322,4 +1323,17 @@ New dictionary:
     <string name="gesture_data_swipe_o_scope">Tool for visualizing gesture data: &lt;a href=%s&gt;Swipe-O-Scope&lt;/a&gt;</string>
 
     <!-- new strings should go above the section for gesture data gathering -->
+    <!-- Claude translator -->
+    <string name="translate">Tradutor</string>
+    <string name="translator_close">Fechar tradutor</string>
+    <string name="translator_portuguese">Português</string>
+    <string name="translator_english">Inglês</string>
+    <string name="translator_hint">Escrever para traduzir</string>
+    <string name="translator_working">a traduzir…</string>
+    <string name="translator_tap_retry">tocar para repetir</string>
+    <string name="translator_no_key">Falta a chave API · Definições → Avançadas</string>
+    <string name="translator_api_key">Chave API do Claude (tradutor)</string>
+    <string name="translator_api_key_set">Definida (termina em %s)</string>
+    <string name="translator_api_key_unset">Não definida</string>
+    <string name="translator_model">Modelo Claude (tradutor)</string>
 </resources>
