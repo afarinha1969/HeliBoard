@@ -725,6 +725,11 @@ public class LatinIME extends InputMethodService implements
         }
     }
 
+    /** cursor end in the app's real field, as last reported by the app; -1 if unknown */
+    public int getLastRealSelectionEnd() {
+        return Math.max(mLastRealSelStart, mLastRealSelEnd);
+    }
+
     public void toggleTranslator() {
         if (mTranslator == null) return;
         if (mTranslator.isActive()) closeTranslator();

@@ -14,7 +14,8 @@ import java.util.concurrent.Executors
 
 /**
  * Translator mode: the keyboard types into an internal buffer, and the Claude translation of that buffer
- * is written into the app's text field as composing text, updated after each short pause.
+ * is written into the app's text field, updated after each short pause. The position of the inserted
+ * translation is tracked explicitly (apps like WhatsApp may drop composing spans).
  */
 class TranslatorController(private val ime: LatinIME) {
 
@@ -31,6 +32,47 @@ class TranslatorController(private val ime: LatinIME) {
     private var finalizePending = false
     private var toEnglish = ime.prefs().getBoolean(PREF_DIRECTION_TO_ENGLISH, true)
     private val translateRunnable = Runnable { startTranslation() }
+
+    /** where our translation starts in the app's field, and what we put there */
+    private var regionStart = -1
+    private var regionText = ""
+    /** space to put before the translation when it follows other text */
+    private var regionPrefix = ""
+
+    /** Replace the translation we inserted earlier in the app's field with [newText]. */
+    private fun replaceRegion(newText: String) {
+        val real = ime.realInputConnection ?: return
+        val insert = if (newText.isEmpty()) "" else regionPrefix + newText
+        if (insert.isEmpty() && regionText.isEmpty()) return
+        real.beginBatchEdit()
+        try {
+            var start = regionStart
+            val et = real.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+            val full = et?.text?.toString()
+            if (full != null) {
+                val off = et.startOffset
+                if (start < 0) start = off + maxOf(et.selectionStart, et.selectionEnd)
+                if (regionText.isNotEmpty()) {
+                    val local = start - off
+                    val matches = local >= 0 && local + regionText.length <= full.length &&
+                        full.regionMatches(local, regionText, 0, regionText.length)
+                    if (!matches) {
+                        val idx = full.lastIndexOf(regionText)
+                        if (idx >= 0) start = off + idx
+                        else { start = off + maxOf(et.selectionStart, et.selectionEnd); regionText = "" }
+                    }
+                }
+            }
+            if (start < 0) start = 0
+            real.finishComposingText()
+            real.setSelection(start, start + regionText.length)
+            real.commitText(insert, 1)
+            regionStart = start
+            regionText = insert
+        } finally {
+            real.endBatchEdit()
+        }
+    }
 
     fun attachView(newView: TranslatorView?) {
         if (newView === view) return
@@ -53,6 +95,11 @@ class TranslatorController(private val ime: LatinIME) {
             if (isActive) ime.onTranslatorSelectionUpdate(oss, ose, nss, nse, cs, ce)
         }
         connection = ic
+        val real = ime.realInputConnection
+        regionStart = ime.lastRealSelectionEnd
+        regionText = ""
+        val before = real?.getTextBeforeCursor(1, 0)
+        regionPrefix = if (!before.isNullOrEmpty() && !before[before.length - 1].isWhitespace()) " " else ""
         lastTranslatedSource = ""
         finalizePending = false
         inFlight = false
@@ -82,14 +129,12 @@ class TranslatorController(private val ime: LatinIME) {
             requestId++ // drop any result still in flight
             return
         }
-        val real = ime.realInputConnection
         when {
             source.isBlank() -> {
                 requestId++
-                real?.setComposingText("", 1)
-                real?.finishComposingText()
+                replaceRegion("")
             }
-            source == lastTranslatedSource && !inFlight -> real?.finishComposingText()
+            source == lastTranslatedSource && !inFlight -> {}
             else -> {
                 finalizePending = true
                 startTranslation(source)
@@ -134,7 +179,7 @@ class TranslatorController(private val ime: LatinIME) {
             requestId++
             inFlight = false
             lastTranslatedSource = ""
-            ime.realInputConnection?.setComposingText("", 1)
+            replaceRegion("")
             return
         }
         if (text.trim() == lastTranslatedSource.trim() && !inFlight) return
@@ -151,10 +196,7 @@ class TranslatorController(private val ime: LatinIME) {
         val key = apiKey()
         if (key.isBlank()) {
             view?.setStatus(ime.getString(R.string.translator_no_key))
-            if (finalizePending) {
-                finalizePending = false
-                ime.realInputConnection?.finishComposingText()
-            }
+            finalizePending = false
             return
         }
         val id = ++requestId
@@ -171,18 +213,16 @@ class TranslatorController(private val ime: LatinIME) {
     private fun onResult(id: Int, source: String, result: ClaudeTranslator.Result) {
         if (id != requestId) return
         inFlight = false
-        val real = ime.realInputConnection
         val out = result.text
         if (out != null) {
             lastTranslatedSource = source
-            real?.setComposingText(out, 1)
+            replaceRegion(out)
             if (isActive) view?.setStatus(null)
         } else if (isActive) {
             view?.setStatus(result.error + " · " + ime.getString(R.string.translator_tap_retry))
         }
         if (finalizePending) {
             finalizePending = false
-            real?.finishComposingText()
             return
         }
         // text changed while the request was running
