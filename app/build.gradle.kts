@@ -22,6 +22,16 @@ android {
         proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
 
+    // fixed key so every CI build has the same signature and can be installed as an update
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -36,6 +46,7 @@ android {
             isJniDebuggable = false
         }
         debug {
+            signingConfig = signingConfigs.getByName("debug")
             // "normal" debug has minify for smaller APK to fit the GitHub 25 MB limit when zipped
             // and for better performance in case users want to install a debug APK
             isMinifyEnabled = true
