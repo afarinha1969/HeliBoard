@@ -6,7 +6,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
-import android.text.TextUtils
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.text.style.ForegroundColorSpan
 import android.util.AttributeSet
 import android.util.TypedValue
@@ -30,7 +31,7 @@ class TranslatorView @JvmOverloads constructor(context: Context, attrs: Attribut
     private val targetLabel = TextView(context)
     private val swapLabel = TextView(context)
     private val closeButton = ImageButton(context)
-    private val input = TextView(context)
+    private val input = CursorTextView(context)
     private val status = TextView(context)
     private val fieldBackground: View
     private var textColor = 0
@@ -129,11 +130,9 @@ class TranslatorView @JvmOverloads constructor(context: Context, attrs: Attribut
         when (event.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_UP -> {
                 if (displayedCursor < 0) return true // hint shown, nothing to place
-                val displayOffset = input.getOffsetForPosition(event.x, event.y)
-                if (displayOffset < 0) return true
-                // the displayed text contains one extra character: the cursor mark at displayedCursor
-                val bufferOffset = if (displayOffset > displayedCursor) displayOffset - 1 else displayOffset
-                controller?.moveCursorTo(bufferOffset)
+                val offset = input.getOffsetForPosition(event.x, event.y)
+                if (offset < 0) return true
+                controller?.moveCursorTo(offset)
             }
         }
         return true
@@ -155,20 +154,72 @@ class TranslatorView @JvmOverloads constructor(context: Context, attrs: Attribut
     }
 
     fun setInput(text: String, cursor: Int) {
+        input.cursorColor = colorAccent()
         if (text.isEmpty()) {
             displayedCursor = -1
             input.scrollTo(0, 0)
-            val hint = SpannableStringBuilder("│ " + context.getString(R.string.translator_hint))
-            hint.setSpan(ForegroundColorSpan(hintColor), 1, hint.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            val hint = SpannableStringBuilder(context.getString(R.string.translator_hint))
+            hint.setSpan(ForegroundColorSpan(hintColor), 0, hint.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             input.text = hint
+            input.setCursor(0)
             return
         }
         val c = cursor.coerceIn(0, text.length)
-        val sb = SpannableStringBuilder(text.substring(0, c)).append("│").append(text.substring(c))
-        sb.setSpan(ForegroundColorSpan(colorAccent()), c, c + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        input.text = sb
+        input.text = text
+        input.setCursor(c)
         displayedCursor = c
         scrollToCursor(c)
+    }
+
+    /** TextView that draws a thin blinking cursor exactly at the character position. */
+    private class CursorTextView(context: Context) : TextView(context) {
+        var cursorColor = 0
+        private var cursorOffset = -1
+        private var cursorVisible = true
+        private val paint = Paint()
+        private val width = 2.dpToPx(resources).coerceAtLeast(2).toFloat()
+        private val blink = object : Runnable {
+            override fun run() {
+                cursorVisible = !cursorVisible
+                invalidate()
+                postDelayed(this, BLINK_MS)
+            }
+        }
+
+        fun setCursor(offset: Int) {
+            cursorOffset = offset
+            cursorVisible = true
+            removeCallbacks(blink)
+            if (isAttachedToWindow) postDelayed(blink, BLINK_MS)
+            invalidate()
+        }
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            removeCallbacks(blink)
+            postDelayed(blink, BLINK_MS)
+        }
+
+        override fun onDetachedFromWindow() {
+            removeCallbacks(blink)
+            super.onDetachedFromWindow()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val layout = layout ?: return
+            if (cursorOffset < 0 || !cursorVisible) return
+            val o = cursorOffset.coerceIn(0, text.length)
+            val line = layout.getLineForOffset(o)
+            val x = layout.getPrimaryHorizontal(o) + totalPaddingLeft
+            val top = layout.getLineTop(line) + totalPaddingTop
+            val bottom = layout.getLineBottom(line) + totalPaddingTop
+            paint.color = cursorColor
+            // the canvas is already translated by the scroll position
+            canvas.drawRect(x - width / 2, top.toFloat(), x + width / 2, bottom.toFloat(), paint)
+        }
+
+        companion object { private const val BLINK_MS = 500L }
     }
 
     private fun colorAccent() = Settings.getValues().mColors.get(ColorType.TOOL_BAR_KEY)
