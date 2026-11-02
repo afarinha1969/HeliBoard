@@ -31,7 +31,7 @@ class TranslatorView @JvmOverloads constructor(context: Context, attrs: Attribut
     private val targetLabel = TextView(context)
     private val swapLabel = TextView(context)
     private val closeButton = ImageButton(context)
-    private val input = CursorTextView(context)
+    private val input = TextView(context)
     private val status = TextView(context)
     private val fieldBackground: View
     private var textColor = 0
@@ -130,9 +130,11 @@ class TranslatorView @JvmOverloads constructor(context: Context, attrs: Attribut
         when (event.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_UP -> {
                 if (displayedCursor < 0) return true // hint shown, nothing to place
-                val offset = input.getOffsetForPosition(event.x, event.y)
-                if (offset < 0) return true
-                controller?.moveCursorTo(offset)
+                val displayOffset = input.getOffsetForPosition(event.x, event.y)
+                if (displayOffset < 0) return true
+                // the displayed text contains one extra zero-width character: the cursor mark at displayedCursor
+                val bufferOffset = if (displayOffset > displayedCursor) displayOffset - 1 else displayOffset
+                controller?.moveCursorTo(bufferOffset)
             }
         }
         return true
@@ -154,72 +156,62 @@ class TranslatorView @JvmOverloads constructor(context: Context, attrs: Attribut
     }
 
     fun setInput(text: String, cursor: Int) {
-        input.cursorColor = colorAccent()
+        cursorSpan.color = colorAccent()
+        cursorSpan.visible = true
         if (text.isEmpty()) {
             displayedCursor = -1
             input.scrollTo(0, 0)
-            val hint = SpannableStringBuilder(context.getString(R.string.translator_hint))
-            hint.setSpan(ForegroundColorSpan(hintColor), 0, hint.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            val hint = SpannableStringBuilder(CURSOR_CHAR).append(context.getString(R.string.translator_hint))
+            hint.setSpan(cursorSpan, 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            hint.setSpan(ForegroundColorSpan(hintColor), 1, hint.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             input.text = hint
-            input.setCursor(0)
             return
         }
         val c = cursor.coerceIn(0, text.length)
-        input.text = text
-        input.setCursor(c)
+        val sb = SpannableStringBuilder(text.substring(0, c)).append(CURSOR_CHAR).append(text.substring(c))
+        sb.setSpan(cursorSpan, c, c + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        input.text = sb
         displayedCursor = c
         scrollToCursor(c)
     }
 
-    /** TextView that draws a thin blinking cursor exactly at the character position. */
-    private class CursorTextView(context: Context) : TextView(context) {
-        var cursorColor = 0
-        private var cursorOffset = -1
-        private var cursorVisible = true
-        private val paint = Paint()
-        private val width = 2.dpToPx(resources).coerceAtLeast(2).toFloat()
-        private val blink = object : Runnable {
-            override fun run() {
-                cursorVisible = !cursorVisible
-                invalidate()
-                postDelayed(this, BLINK_MS)
-            }
+    /** zero-width mark drawn as a thin blinking line exactly where the next character starts */
+    private inner class CursorSpan : android.text.style.ReplacementSpan() {
+        var color = 0
+        var visible = true
+        private val linePaint = Paint()
+        private val lineWidth = 2.dpToPx(resources).coerceAtLeast(2).toFloat()
+
+        override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
+            if (fm != null) paint.getFontMetricsInt(fm)
+            return 0
         }
 
-        fun setCursor(offset: Int) {
-            cursorOffset = offset
-            cursorVisible = true
-            removeCallbacks(blink)
-            if (isAttachedToWindow) postDelayed(blink, BLINK_MS)
-            invalidate()
+        override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
+            if (!visible) return
+            linePaint.color = color
+            canvas.drawRect(x, top.toFloat(), x + lineWidth, bottom.toFloat(), linePaint)
         }
+    }
 
-        override fun onAttachedToWindow() {
-            super.onAttachedToWindow()
-            removeCallbacks(blink)
-            postDelayed(blink, BLINK_MS)
+    private val cursorSpan = CursorSpan()
+    private val blink = object : Runnable {
+        override fun run() {
+            cursorSpan.visible = !cursorSpan.visible
+            input.invalidate()
+            input.postDelayed(this, 500L)
         }
+    }
 
-        override fun onDetachedFromWindow() {
-            removeCallbacks(blink)
-            super.onDetachedFromWindow()
-        }
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        input.removeCallbacks(blink)
+        input.postDelayed(blink, 500L)
+    }
 
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            val layout = layout ?: return
-            if (cursorOffset < 0 || !cursorVisible) return
-            val o = cursorOffset.coerceIn(0, text.length)
-            val line = layout.getLineForOffset(o)
-            val x = layout.getPrimaryHorizontal(o) + totalPaddingLeft
-            val top = layout.getLineTop(line) + totalPaddingTop
-            val bottom = layout.getLineBottom(line) + totalPaddingTop
-            paint.color = cursorColor
-            // the canvas is already translated by the scroll position
-            canvas.drawRect(x - width / 2, top.toFloat(), x + width / 2, bottom.toFloat(), paint)
-        }
-
-        companion object { private const val BLINK_MS = 500L }
+    override fun onDetachedFromWindow() {
+        input.removeCallbacks(blink)
+        super.onDetachedFromWindow()
     }
 
     private fun colorAccent() = Settings.getValues().mColors.get(ColorType.TOOL_BAR_KEY)
@@ -227,5 +219,10 @@ class TranslatorView @JvmOverloads constructor(context: Context, attrs: Attribut
     fun setStatus(message: String?) {
         status.text = message
         status.visibility = if (message.isNullOrEmpty()) GONE else VISIBLE
+    }
+
+    companion object {
+        /** word joiner: invisible character that carries the cursor span */
+        private const val CURSOR_CHAR = "\u2060"
     }
 }
