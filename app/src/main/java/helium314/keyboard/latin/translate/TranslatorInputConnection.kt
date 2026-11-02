@@ -18,9 +18,41 @@ class TranslatorInputConnection(
     view: View,
     private val onChanged: () -> Unit,
     private val onEnter: () -> Unit,
+    /** like InputMethodService.onUpdateSelection: oldSelStart, oldSelEnd, newSelStart, newSelEnd, composingStart, composingEnd */
+    private val onSelectionUpdate: (Int, Int, Int, Int, Int, Int) -> Unit,
 ) : BaseInputConnection(view, true) {
 
     private val buffer = SpannableStringBuilder()
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var reportedSelStart = 0
+    private var reportedSelEnd = 0
+    private var reportPending = false
+    private var closed = false
+    private val reportRunnable = Runnable {
+        reportPending = false
+        if (closed) return@Runnable
+        val s = Selection.getSelectionStart(buffer).coerceIn(0, buffer.length)
+        val e = Selection.getSelectionEnd(buffer).coerceIn(0, buffer.length)
+        val oldS = reportedSelStart
+        val oldE = reportedSelEnd
+        reportedSelStart = s
+        reportedSelEnd = e
+        onSelectionUpdate(oldS, oldE, s, e, getComposingSpanStart(buffer), getComposingSpanEnd(buffer))
+    }
+
+    /** stop reporting to the keyboard (translator closed) */
+    fun close() {
+        closed = true
+        handler.removeCallbacks(reportRunnable)
+    }
+
+    /** place the cursor, e.g. after the user tapped inside the translator field */
+    fun moveCursorTo(offset: Int) {
+        val o = offset.coerceIn(0, buffer.length)
+        if (Selection.getSelectionStart(buffer) == o && Selection.getSelectionEnd(buffer) == o) return
+        Selection.setSelection(buffer, o)
+        changed(true)
+    }
 
     init { Selection.setSelection(buffer, 0) }
 
@@ -35,9 +67,18 @@ class TranslatorInputConnection(
         buffer.clear()
         buffer.clearSpans()
         Selection.setSelection(buffer, 0)
+        reportedSelStart = 0
+        reportedSelEnd = 0
     }
 
-    private fun <T> changed(result: T): T { onChanged(); return result }
+    private fun <T> changed(result: T): T {
+        onChanged()
+        if (!reportPending && !closed) {
+            reportPending = true
+            handler.post(reportRunnable)
+        }
+        return result
+    }
 
     override fun commitText(text: CharSequence?, newCursorPosition: Int) =
         changed(super.commitText(text, newCursorPosition))

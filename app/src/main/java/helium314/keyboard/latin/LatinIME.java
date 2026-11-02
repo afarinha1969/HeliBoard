@@ -713,6 +713,18 @@ public class LatinIME extends InputMethodService implements
         return super.getCurrentInputConnection();
     }
 
+    /** The translator field behaves like an app editor: report its cursor changes as onUpdateSelection would. */
+    public void onTranslatorSelectionUpdate(final int oldSelStart, final int oldSelEnd,
+                                            final int newSelStart, final int newSelEnd,
+                                            final int composingSpanStart, final int composingSpanEnd) {
+        if (mTranslator == null || !mTranslator.isActive() || !isInputViewShown()) return;
+        final SettingsValues settingsValues = mSettings.getCurrent();
+        if (mInputLogic.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd,
+                composingSpanStart, composingSpanEnd, settingsValues)) {
+            mKeyboardSwitcher.updateShiftState(getCurrentAutoCapsState(), getCurrentRecapitalizeState());
+        }
+    }
+
     public void toggleTranslator() {
         if (mTranslator == null) return;
         if (mTranslator.isActive()) closeTranslator();

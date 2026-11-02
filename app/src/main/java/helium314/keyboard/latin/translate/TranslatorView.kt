@@ -82,7 +82,8 @@ class TranslatorView @JvmOverloads constructor(context: Context, attrs: Attribut
         }
         input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
         input.maxLines = 3
-        input.ellipsize = TextUtils.TruncateAt.START
+        input.isVerticalScrollBarEnabled = false
+        input.setOnTouchListener { _, event -> onInputTouch(event) }
         status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
         status.maxLines = 2
         status.setTypeface(status.typeface, Typeface.ITALIC)
@@ -121,8 +122,42 @@ class TranslatorView @JvmOverloads constructor(context: Context, attrs: Attribut
         targetLabel.text = if (toEnglish) en else pt
     }
 
+    /** cursor position in the buffer while it is displayed, -1 if showing the hint */
+    private var displayedCursor = -1
+
+    private fun onInputTouch(event: android.view.MotionEvent): Boolean {
+        when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_UP -> {
+                if (displayedCursor < 0) return true // hint shown, nothing to place
+                val displayOffset = input.getOffsetForPosition(event.x, event.y)
+                if (displayOffset < 0) return true
+                // the displayed text contains one extra character: the cursor mark at displayedCursor
+                val bufferOffset = if (displayOffset > displayedCursor) displayOffset - 1 else displayOffset
+                controller?.moveCursorTo(bufferOffset)
+            }
+        }
+        return true
+    }
+
+    private fun scrollToCursor(displayOffset: Int) {
+        input.post {
+            val layout = input.layout ?: return@post
+            val o = displayOffset.coerceIn(0, input.text.length)
+            val line = layout.getLineForOffset(o)
+            val top = layout.getLineTop(line)
+            val bottom = layout.getLineBottom(line)
+            val visible = input.height - input.totalPaddingTop - input.totalPaddingBottom
+            var y = input.scrollY
+            if (top < y) y = top
+            else if (bottom > y + visible) y = bottom - visible
+            input.scrollTo(0, y.coerceAtLeast(0))
+        }
+    }
+
     fun setInput(text: String, cursor: Int) {
         if (text.isEmpty()) {
+            displayedCursor = -1
+            input.scrollTo(0, 0)
             val hint = SpannableStringBuilder("│ " + context.getString(R.string.translator_hint))
             hint.setSpan(ForegroundColorSpan(hintColor), 1, hint.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             input.text = hint
@@ -132,6 +167,8 @@ class TranslatorView @JvmOverloads constructor(context: Context, attrs: Attribut
         val sb = SpannableStringBuilder(text.substring(0, c)).append("│").append(text.substring(c))
         sb.setSpan(ForegroundColorSpan(colorAccent()), c, c + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         input.text = sb
+        displayedCursor = c
+        scrollToCursor(c)
     }
 
     private fun colorAccent() = Settings.getValues().mColors.get(ColorType.TOOL_BAR_KEY)

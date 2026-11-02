@@ -49,7 +49,9 @@ class TranslatorController(private val ime: LatinIME) {
     /** Called by LatinIME after it has committed any composing text in the app's field. */
     fun activate() {
         val v = view ?: return
-        val ic = TranslatorInputConnection(v, ::onTextChanged, ::onEnter)
+        val ic = TranslatorInputConnection(v, ::onTextChanged, ::onEnter) { oss, ose, nss, nse, cs, ce ->
+            if (isActive) ime.onTranslatorSelectionUpdate(oss, ose, nss, nse, cs, ce)
+        }
         connection = ic
         lastTranslatedSource = ""
         finalizePending = false
@@ -74,6 +76,7 @@ class TranslatorController(private val ime: LatinIME) {
         view?.visibility = android.view.View.GONE
         view?.setStatus(null)
         val source = connection?.text().orEmpty()
+        connection?.close()
         connection = null
         if (!finalize) {
             requestId++ // drop any result still in flight
@@ -95,6 +98,12 @@ class TranslatorController(private val ime: LatinIME) {
     }
 
     fun requestClose() = ime.closeTranslator()
+
+    /** user tapped / dragged inside the translator field */
+    fun moveCursorTo(offset: Int) {
+        if (!isActive) return
+        connection?.moveCursorTo(offset)
+    }
 
     fun swapDirection() {
         toEnglish = !toEnglish
