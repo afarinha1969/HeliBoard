@@ -74,6 +74,8 @@ class TranslatorView @JvmOverloads constructor(context: Context, attrs: Attribut
         closeButton.background = null
         closeButton.contentDescription = context.getString(R.string.translator_close)
         closeButton.setOnClickListener { controller?.requestClose() }
+        // diagnostics: long press shows the exact buffer content around the cursor
+        closeButton.setOnLongClickListener { setStatus(controller?.debugInfo()); true }
         inputRow.addView(closeButton, LayoutParams(44.dpToPx(res), 44.dpToPx(res)))
 
         val field = LinearLayout(context).apply {

@@ -144,6 +144,25 @@ class TranslatorController(private val ime: LatinIME) {
 
     fun requestClose() = ime.closeTranslator()
 
+    /** buffer with spaces shown as · and the cursor as |, plus code points around the cursor */
+    fun debugInfo(): String {
+        val ic = connection ?: return "inativo"
+        val t = ic.text()
+        val c = ic.cursor()
+        val shown = StringBuilder()
+        t.forEachIndexed { i, ch ->
+            if (i == c) shown.append('|')
+            shown.append(when {
+                ch == ' ' -> '·'
+                ch.isWhitespace() || ch.code < 32 || ch.code in 0x200B..0x206F || ch.code == 0xFEFF -> '¤'
+                else -> ch
+            })
+        }
+        if (c >= t.length) shown.append('|')
+        val around = (maxOf(0, c - 2) until minOf(t.length, c + 2)).joinToString(" ") { "%04X".format(t[it].code) }
+        return "$shown  [len ${t.length}, cursor $c: $around]"
+    }
+
     /** user tapped / dragged inside the translator field */
     fun moveCursorTo(offset: Int) {
         if (!isActive) return
